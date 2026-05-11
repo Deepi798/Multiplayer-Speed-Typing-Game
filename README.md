@@ -1,4 +1,4 @@
-# Speed Typing Game - Frontend
+# Speed Typing Game 
 
 Modern, responsive frontend for the real-time multiplayer typing game.
 
