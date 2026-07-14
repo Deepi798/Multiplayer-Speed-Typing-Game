@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Typing Arena</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="game-header">
+            <h1>Typing Arena</h1>
+            <div class="room-info">
+                <span>Room Code: <strong id="roomCode">{{ room_id }}</strong></span>
+                <button class="btn-copy" onclick="copyRoomLink()">Share Link</button>
+            </div>
+        </div>
+
+        <div id="waitingArea" class="waiting-area">
+            <h2>Getting Ready to Type!</h2>
+            <p class="waiting-subtitle">Gather your friends and prepare for the ultimate typing showdown!</p>
+            
+            <div class="input-group">
+                <input type="text" id="playerName" placeholder="Enter your awesome name here!" maxlength="20">
+                <button class="btn btn-primary" onclick="joinGame()">Join the Battle</button>
+            </div>
+            <div id="playersList" class="players-list"></div>
+            
+            <div class="game-settings">
+                <h3>Challenge Settings</h3>
+                <div class="setting-item">
+                    <label for="roundsSelect">How many rounds can you handle?</label>
+                    <select id="roundsSelect" class="rounds-select">
+                        <option value="5">5 Rounds - Quick Sprint</option>
+                        <option value="10">10 Rounds - Steady Pace</option>
+                        <option value="15" selected>15 Rounds - Marathon</option>
+                        <option value="20">20 Rounds - Ultimate Challenge</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button id="startBtn" class="btn btn-success" onclick="startGame()" style="display:none;">Let's Go!</button>
+        </div>
+
+        <div id="gameArea" class="game-area" style="display:none;">
+            <div class="scoreboard">
+                <h3>Champions Board</h3>
+                <div id="scores"></div>
+            </div>
+            
+            <div class="game-content">
+                <div class="round-info">
+                    <span id="roundNumber">Round 1/15</span>
+                    <span id="timer" class="timer">30s</span>
+                </div>
+                
+                <div class="word-display">
+                    <div id="currentWord" class="current-word">Get ready to type like lightning!</div>
+                </div>
+                
+                <div class="input-area">
+                    <input type="text" id="wordInput" placeholder="Type the sentence as fast as you can..." autocomplete="off" disabled>
+                    <button id="submitBtn" class="btn btn-submit" onclick="submitAnswer()" disabled>
+                        Submit Answer
+                    </button>
+                    <div id="feedback" class="feedback"></div>
+                    <div id="submissionFeed" class="submission-feed"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="gameOver" class="game-over" style="display:none;">
+            <h2>Challenge Complete!</h2>
+            <div id="winnerAnnouncement"></div>
+            <div id="finalScores"></div>
+            <button class="btn btn-primary" onclick="location.href='/'">Back to Home</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const ROOM_ID = "{{ room_id }}";
+    </script>
+    <script src="{{ url_for('static', filename='game.js') }}"></script>
+</body>
+</html>

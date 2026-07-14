@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speed Typing Challenge</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Speed Typing Challenge</h1>
+        <p class="subtitle">Ready to test your lightning-fast fingers? Let's see how quick you can type!</p>
+        
+        <div class="menu-box">
+            <div class="input-group">
+                <input type="text" id="playerName" placeholder="What's your name, speed demon?" maxlength="20">
+            </div>
+            
+            <button class="btn btn-primary" onclick="createRoom()">Start New Challenge</button>
+            
+            <div class="divider">OR JOIN THE FUN</div>
+            
+            <div class="input-group">
+                <input type="text" id="roomCode" placeholder="Got a room code? Drop it here!" maxlength="8">
+            </div>
+            <button class="btn btn-secondary" onclick="joinRoom()">Join Challenge</button>
+        </div>
+        
+        <div id="message" class="message"></div>
+        
+        <div class="tips-section">
+            <h3>Pro Tips</h3>
+            <ul>
+                <li>Keep your fingers on the home row keys</li>
+                <li>Don't look at the keyboard - trust your muscle memory</li>
+                <li>Accuracy beats speed - fewer mistakes = higher scores!</li>
+            </ul>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>
