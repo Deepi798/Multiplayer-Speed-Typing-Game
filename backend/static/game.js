@@ -24,13 +24,20 @@ function copyRoomLink() {
 }
 
 function joinGame() {
-    const playerName = document.getElementById('playerName').value.trim();
+
+    if (hasJoined) return;
+
+    const playerName = document.getElementById("playerName").value.trim();
+
     if (!playerName) {
-        alert('Hold up! We need your name to join the typing battle');
+        alert("Please enter your name.");
         return;
     }
-    
-    socket.emit('join_room', {
+
+    console.log("Joining room:", ROOM_ID);
+    console.log("Player:", playerName);
+
+    socket.emit("join_room", {
         room_id: ROOM_ID,
         player_name: playerName
     });

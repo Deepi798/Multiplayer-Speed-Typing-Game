@@ -69,30 +69,56 @@ def handle_create_room(data):
     
     emit('room_created', {'room_id': room_id, 'player_name': player_name})
 
-@socketio.on('join_room')
+@socketio.on("join_room")
 def handle_join_room(data):
-    room_id = data['room_id']
-    player_name = data['player_name']
-    
+
+    room_id = data.get("room_id")
+    player_name = data.get("player_name", "").strip()
+
+    print(f"JOIN REQUEST -> {room_id} | {player_name}")
+
+    if not room_id:
+        emit("error", {"message": "Invalid Room"})
+        return
+
+    if not player_name:
+        emit("error", {"message": "Please enter your name"})
+        return
+
     if room_id not in rooms:
-        emit('error', {'message': 'Room not found'})
+        emit("error", {"message": "Room not found"})
         return
-    
-    if rooms[room_id]['game_started']:
-        emit('error', {'message': 'Game already in progress'})
+
+    room = rooms[room_id]
+
+    if room["game_started"]:
+        emit("error", {"message": "Game already started"})
         return
-    
+
     join_room(room_id)
-    
+
     player_id = request.sid
-    rooms[room_id]['players'][player_id] = {
-        'name': player_name,
-        'score': 0,
-        'sid': player_id
+
+    room["players"][player_id] = {
+        "name": player_name,
+        "score": 0,
+        "sid": player_id
     }
-    
-    emit('joined_room', {'player_name': player_name, 'room_id': room_id})
-    emit('player_list', {'players': list(rooms[room_id]['players'].values())}, room=room_id)
+
+    emit("joined_room", {
+        "room_id": room_id,
+        "player_name": player_name
+    })
+
+    socketio.emit(
+        "player_list",
+        {
+            "players": list(room["players"].values())
+        },
+        room=room_id
+    )
+
+    print(f"{player_name} joined successfully.")
 
 @socketio.on('start_game')
 def handle_start_game(data):
