@@ -55,6 +55,7 @@ def handle_create_room(data):
     player_name = data.get('player_name', 'Player')
     
     rooms[room_id] = {
+        'host': None,
         'players': {},
         'game_started': False,
         'current_round': 0,
@@ -89,27 +90,38 @@ def handle_join_room(data):
         emit("error", {"message": "Room not found"})
         return
 
+    # Get room
     room = rooms[room_id]
 
+    # Check if game already started
     if room["game_started"]:
         emit("error", {"message": "Game already started"})
         return
 
+    # Join Socket.IO room
     join_room(room_id)
 
     player_id = request.sid
 
+    # Add player
     room["players"][player_id] = {
         "name": player_name,
         "score": 0,
         "sid": player_id
     }
 
+    # First player becomes host
+    if room.get("host") is None:
+        room["host"] = player_id
+
+    # Tell player they joined
     emit("joined_room", {
         "room_id": room_id,
-        "player_name": player_name
+        "player_name": player_name,
+        "host": room["host"] == player_id
     })
 
+    # Update everyone in the room
     socketio.emit(
         "player_list",
         {
