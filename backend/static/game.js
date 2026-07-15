@@ -1,4 +1,5 @@
 const socket = io();
+
 let hasJoined = false;
 let timerInterval = null;
 let timeRemaining = 0;
@@ -48,11 +49,20 @@ function startGame() {
     socket.emit('start_game', { room_id: ROOM_ID, total_rounds: rounds });
 }
 
-socket.on('joined_room', (data) => {
+socket.on("joined_room", (data) => {
+
     hasJoined = true;
-    document.getElementById('playerName').disabled = true;
-    document.querySelector('.waiting-area .btn-primary').disabled = true;
-    document.getElementById('startBtn').style.display = 'block';
+
+    document.getElementById("playerName").disabled = true;
+    document.querySelector(".waiting-area .btn-primary").disabled = true;
+
+    // Only host can start the game
+    if (data.host) {
+        document.getElementById("startBtn").style.display = "block";
+    } else {
+        document.getElementById("startBtn").style.display = "none";
+    }
+
 });
 
 // Player avatar symbols - face emojis

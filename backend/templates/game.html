@@ -78,9 +78,11 @@
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script>
-        const ROOM_ID = "{{ room_id }}";
-    </script>
-    <script src="{{ url_for('static', filename='game.js') }}"></script>
+
+<script>
+    const ROOM_ID = "{{ room_id }}";
+</script>
+
+<script src="{{ url_for('static', filename='game.js') }}"></script>
 </body>
 </html>
