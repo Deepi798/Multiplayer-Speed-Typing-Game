@@ -53,7 +53,7 @@ body {
 
 .container {
     width: 100%;
-    max-width: 650px; /* Increased from 480px to make the card wider */
+    max-width: 750px; 
     padding: 2rem;
 }
 /* ==========================================================================
