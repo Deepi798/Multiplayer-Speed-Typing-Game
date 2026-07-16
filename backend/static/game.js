@@ -1,305 +1,319 @@
-const socket = io();
+/**
+ * TypeRush Arena - Client-Side Multiplayer Logic
+ * File: static/js/game.js
+ */
 
-let hasJoined = false;
-let timerInterval = null;
-let timeRemaining = 0;
+document.addEventListener('DOMContentLoaded', () => {
+    // --- 1. Initialization & Auth Check ---
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomCode = urlParams.get('room');
+    const playerName = sessionStorage.getItem('playerName');
+    const isHost = sessionStorage.getItem('isHost') === 'true';
 
-// Auto-join if coming from home page with stored name
-window.addEventListener('DOMContentLoaded', () => {
-    const storedName = sessionStorage.getItem('playerName');
-    if (storedName && !hasJoined) {
-        document.getElementById('playerName').value = storedName;
-        sessionStorage.removeItem('playerName');
-        // Auto-join after a short delay
-        setTimeout(() => {
-            joinGame();
-        }, 500);
-    }
-});
-
-function copyRoomLink() {
-    const link = window.location.href;
-    navigator.clipboard.writeText(link).then(() => {
-        alert('Room link copied! Share it with your friends to challenge them!');
-    });
-}
-
-function joinGame() {
-
-    if (hasJoined) return;
-
-    const playerName = document.getElementById("playerName").value.trim();
-
-    if (!playerName) {
-        alert("Please enter your name.");
+    // If missing data, boot them back to the landing page
+    if (!roomCode || !playerName) {
+        window.location.href = '/';
         return;
     }
 
-    console.log("Joining room:", ROOM_ID);
-    console.log("Player:", playerName);
+    // --- 2. DOM Elements ---
+    // Screens
+    const waitingScreen = document.getElementById('waitingScreen');
+    const gameScreen = document.getElementById('gameScreen');
+    const resultsScreen = document.getElementById('resultsScreen');
+    
+    // Status & Notifications
+    const statusBanner = document.getElementById('statusBanner');
+    const notificationArea = document.getElementById('notificationArea');
+    
+    // Waiting Room Elements
+    const displayRoomCode = document.getElementById('displayRoomCode');
+    const playerList = document.getElementById('playerList');
+    const copyInviteBtn = document.getElementById('copyInviteBtn');
+    const hostControls = document.getElementById('hostControls');
+    const guestMessage = document.getElementById('guestMessage');
+    const startGameBtn = document.getElementById('startGameBtn');
+    const roundsSelect = document.getElementById('roundsSelect');
+    
+    // Game Elements
+    const countdownOverlay = document.getElementById('countdownOverlay');
+    const countdownText = document.getElementById('countdownText');
+    const currentRoundEl = document.getElementById('currentRound');
+    const totalRoundsEl = document.getElementById('totalRounds');
+    const timeRemainingEl = document.getElementById('timeRemaining');
+    const progressBar = document.getElementById('progressBar');
+    const targetTextContainer = document.getElementById('targetText');
+    const gameInput = document.getElementById('gameInput');
+    const accuracyDisplay = document.getElementById('accuracyDisplay');
+    const wpmDisplay = document.getElementById('wpmDisplay');
+    const liveLeaderboard = document.getElementById('liveLeaderboard');
+    
+    // Results Elements
+    const winnerText = document.getElementById('winnerText');
+    const winnerScore = document.getElementById('winnerScore');
+    const finalLeaderboard = document.getElementById('finalLeaderboard');
+    const playAgainBtn = document.getElementById('playAgainBtn');
+    const returnHomeBtn = document.getElementById('returnHomeBtn');
 
-    socket.emit("join_room", {
-        room_id: ROOM_ID,
-        player_name: playerName
-    });
-}
+    // Game State Variables
+    let currentSentence = "";
+    let gameStartTime = 0;
+    let roundTimeLimit = 0;
 
-function startGame() {
-    const rounds = parseInt(document.getElementById('roundsSelect').value);
-    socket.emit('start_game', { room_id: ROOM_ID, total_rounds: rounds });
-}
+    // --- 3. UI Helpers ---
+    displayRoomCode.textContent = roomCode;
 
-socket.on("joined_room", (data) => {
-
-    hasJoined = true;
-
-    document.getElementById("playerName").disabled = true;
-    document.querySelector(".waiting-area .btn-primary").disabled = true;
-
-    // Only host can start the game
-    if (data.host) {
-        document.getElementById("startBtn").style.display = "block";
+    if (isHost) {
+        hostControls.classList.remove('hidden');
+        guestMessage.classList.add('hidden');
+        playAgainBtn.classList.remove('hidden'); // Show play again on end screen
     } else {
-        document.getElementById("startBtn").style.display = "none";
+        hostControls.classList.add('hidden');
+        guestMessage.classList.remove('hidden');
+        playAgainBtn.classList.add('hidden');
     }
 
-});
-
-// Player avatar symbols - face emojis
-const playerSymbols = ['😀', '😎', '🤓', '😊', '🥳', '😇', '🤩', '😺', '🐱', '🦊', '🐼', '🐨', '🦁', '🐯', '🐸'];
-const playerColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
-const playerAvatars = {};
-const playerColorMap = {};
-
-function getPlayerAvatar(playerName, index) {
-    if (!playerAvatars[playerName]) {
-        playerAvatars[playerName] = playerSymbols[index % playerSymbols.length];
-        playerColorMap[playerName] = playerColors[index % playerColors.length];
+    function switchScreen(screen) {
+        waitingScreen.classList.add('hidden');
+        gameScreen.classList.add('hidden');
+        resultsScreen.classList.add('hidden');
+        screen.classList.remove('hidden');
     }
-    return playerAvatars[playerName];
-}
 
-function getPlayerColor(playerName) {
-    return playerColorMap[playerName] || playerColors[0];
-}
-
-socket.on('player_list', (data) => {
-    const playersList = document.getElementById('playersList');
-    if (playersList) {
-        playersList.innerHTML = '<h3>Typing Warriors Ready for Battle:</h3>';
-        data.players.forEach((player, index) => {
-            const div = document.createElement('div');
-            div.className = 'player-item';
-            const avatar = getPlayerAvatar(player.name, index);
-            const color = getPlayerColor(player.name);
-            div.innerHTML = `
-                <span class="player-avatar-card" style="background: ${color};">${avatar}</span>
-                <span class="player-info">
-                    <span class="player-name-text">${player.name}</span>
-                    <span class="player-score-text">${player.score} points</span>
-                </span>
-            `;
-            playersList.appendChild(div);
-        });
+    function showNotification(msg) {
+        notificationArea.textContent = msg;
+        notificationArea.classList.remove('hidden');
+        setTimeout(() => notificationArea.classList.add('hidden'), 3000);
     }
-    
-    const scoresDiv = document.getElementById('scores');
-    if (scoresDiv) {
-        scoresDiv.innerHTML = '';
-        data.players.forEach((player, index) => {
-            const div = document.createElement('div');
-            div.className = 'score-item';
-            const avatar = getPlayerAvatar(player.name, index);
-            const color = getPlayerColor(player.name);
-            div.innerHTML = `
-                <span class="score-rank">#${index + 1}</span>
-                <span class="player-avatar-card" style="background: ${color};">${avatar}</span>
-                <span class="score-name">${player.name}</span>
-                <span class="score-points">${player.score}</span>
-            `;
-            scoresDiv.appendChild(div);
-        });
-    }
-});
 
-socket.on('game_started', (data) => {
-    document.getElementById('waitingArea').style.display = 'none';
-    document.getElementById('gameArea').style.display = 'block';
-});
+    // --- 4. Socket.IO Connection ---
+    const socket = io();
 
-socket.on('new_word', (data) => {
-    document.getElementById('roundNumber').textContent = `Round ${data.round}/${data.total_rounds}`;
-    document.getElementById('currentWord').textContent = data.word;
-    document.getElementById('wordInput').value = '';
-    document.getElementById('wordInput').disabled = false;
-    document.getElementById('submitBtn').disabled = false;
-    document.getElementById('wordInput').focus();
-    document.getElementById('feedback').textContent = 'Type as fast as lightning! Show off those finger skills!';
-    document.getElementById('feedback').className = 'feedback';
-    document.getElementById('submissionFeed').innerHTML = '';
-    
-    // Start countdown timer
-    timeRemaining = data.duration;
-    updateTimer();
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(() => {
-        timeRemaining--;
-        updateTimer();
-        if (timeRemaining <= 0) {
-            clearInterval(timerInterval);
-        }
-    }, 1000);
-});
-
-function updateTimer() {
-    const timerEl = document.getElementById('timer');
-    if (timerEl) {
-        timerEl.textContent = `⏱️ ${timeRemaining}s`;
-        if (timeRemaining <= 5) {
-            timerEl.style.color = '#e53e3e';
-        } else if (timeRemaining <= 10) {
-            timerEl.style.color = '#dd6b20';
-        } else {
-            timerEl.style.color = '#667eea';
-        }
-    }
-}
-
-function submitAnswer() {
-    const input = document.getElementById('wordInput');
-    const word = input.value.trim();
-    if (word && !input.disabled) {
-        socket.emit('submit_word', {
-            room_id: ROOM_ID,
-            word: word
-        });
-    }
-}
-
-document.getElementById('wordInput')?.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        submitAnswer();
-    }
-});
-
-socket.on('submission_result', (data) => {
-    const feedback = document.getElementById('feedback');
-    const input = document.getElementById('wordInput');
-    
-    if (data.correct) {
-        const encouragements = [
-            'Blazing fast!', 'Lightning speed!', 'Rocket fingers!', 
-            'Stellar typing!', 'Perfect shot!', 'Typing royalty!'
-        ];
-        const randomEncouragement = encouragements[Math.floor(Math.random() * encouragements.length)];
-        feedback.textContent = `${randomEncouragement} +${data.points} points (${data.reaction_time}s)`;
-        feedback.className = 'feedback correct';
-        input.disabled = true;
-        document.getElementById('submitBtn').disabled = true;
-        if (timerInterval) clearInterval(timerInterval);
-    } else {
-        const tryAgainMessages = [
-            'Oops! Give it another shot!', 'You got this! Try again!', 
-            'Close one! One more time!', 'Almost there! Keep going!'
-        ];
-        const randomMessage = tryAgainMessages[Math.floor(Math.random() * tryAgainMessages.length)];
-        feedback.textContent = randomMessage;
-        feedback.className = 'feedback incorrect';
-        input.value = '';
-        input.focus();
+    socket.on('connect', () => {
+        statusBanner.textContent = "Connected";
+        statusBanner.className = "status-banner success";
+        setTimeout(() => statusBanner.style.display = 'none', 2000);
         
-        // Clear the error message after 2 seconds
-        setTimeout(() => {
-            if (feedback.textContent.includes('Oops') || feedback.textContent.includes('got this') || 
-                feedback.textContent.includes('Close') || feedback.textContent.includes('Almost')) {
-                feedback.textContent = 'Type as fast as lightning! Show off those finger skills!';
-                feedback.className = 'feedback';
-            }
-        }, 2000);
-    }
-});
-
-socket.on('round_complete', (data) => {
-    const feedback = document.getElementById('feedback');
-    feedback.textContent = 'Round complete! Get ready for the next challenge...';
-    feedback.className = 'feedback';
-    feedback.style.background = '#064e3b';
-    feedback.style.color = '#6ee7b7';
-    feedback.style.border = '1px solid #10b981';
-    
-    if (timerInterval) clearInterval(timerInterval);
-});
-
-socket.on('round_timeout', (data) => {
-    const feedback = document.getElementById('feedback');
-    const wordDisplay = document.getElementById('currentWord');
-    
-    // Show the correct sentence
-    wordDisplay.textContent = data.word;
-    feedback.textContent = `Time's up! The sentence was: "${data.word}" - Don't worry, you'll get the next one!`;
-    feedback.className = 'feedback';
-    feedback.style.background = '#7f1d1d';
-    feedback.style.color = '#fca5a5';
-    feedback.style.fontSize = '1em';
-    feedback.style.fontWeight = 'bold';
-    feedback.style.border = '1px solid #ef4444';
-    
-    // Disable input
-    document.getElementById('wordInput').disabled = true;
-    document.getElementById('submitBtn').disabled = true;
-    
-    // Clear timer
-    if (timerInterval) clearInterval(timerInterval);
-    
-    // Show "Next round starting..." after 3 seconds
-    setTimeout(() => {
-        feedback.textContent = 'Next round loading... Get those fingers ready!';
-        feedback.style.background = '#064e3b';
-        feedback.style.color = '#6ee7b7';
-        feedback.style.fontSize = '1em';
-        feedback.style.border = '1px solid #10b981';
-    }, 3000);
-});
-
-socket.on('player_submitted', (data) => {
-    const feed = document.getElementById('submissionFeed');
-    const msg = document.createElement('div');
-    msg.className = data.correct ? 'submission-msg correct' : 'submission-msg incorrect';
-    msg.innerHTML = `
-        <span>${data.player_name}</span>
-        <span>${data.correct ? '✓' : '✗'} ${data.points} pts (${data.time}s)</span>
-    `;
-    feed.appendChild(msg);
-    feed.scrollTop = feed.scrollHeight;
-});
-
-socket.on('game_ended', (data) => {
-    document.getElementById('gameArea').style.display = 'none';
-    document.getElementById('gameOver').style.display = 'block';
-    
-    if (data.winner) {
-        const winnerMessages = [
-            `Congratulations ${data.winner.name}! You're the typing champion with ${data.winner.score} points!`,
-            `All hail ${data.winner.name}! The typing master with ${data.winner.score} points!`,
-            `Victory goes to ${data.winner.name}! Amazing ${data.winner.score} points!`
-        ];
-        const randomWinnerMessage = winnerMessages[Math.floor(Math.random() * winnerMessages.length)];
-        document.getElementById('winnerAnnouncement').textContent = randomWinnerMessage;
-    }
-    
-    const finalScores = document.getElementById('finalScores');
-    finalScores.innerHTML = '<h3>Final Hall of Fame:</h3>';
-    data.final_scores.forEach((player, index) => {
-        const div = document.createElement('div');
-        div.className = 'score-item';
-        div.innerHTML = `
-            <span>${index + 1}. ${player.name}</span>
-            <span>${player.score} pts</span>
-        `;
-        finalScores.appendChild(div);
+        // Request to join the room
+        socket.emit('join_room', { room: roomCode, name: playerName, is_host: isHost });
     });
-});
 
-socket.on('error', (data) => {
-    alert(data.message);
+    socket.on('disconnect', () => {
+        statusBanner.textContent = "Disconnected. Reconnecting...";
+        statusBanner.className = "status-banner error";
+        statusBanner.style.display = 'block';
+    });
+
+    socket.on('error', (data) => {
+        alert(data.msg);
+        window.location.href = '/';
+    });
+
+    // --- 5. Event Listeners ---
+    
+    // Copy Invite Link
+    copyInviteBtn.addEventListener('click', () => {
+        const inviteLink = `${window.location.origin}/?room=${roomCode}`;
+        navigator.clipboard.writeText(inviteLink).then(() => {
+            copyInviteBtn.textContent = "Copied!";
+            setTimeout(() => copyInviteBtn.textContent = "Copy Invite Link", 2000);
+        });
+    });
+
+    // Start Game (Host Only)
+    startGameBtn.addEventListener('click', () => {
+        const totalRounds = roundsSelect.value;
+        socket.emit('start_game', { room: roomCode, rounds: totalRounds });
+    });
+
+    // Navigation Buttons
+    returnHomeBtn.addEventListener('click', () => window.location.href = '/');
+    playAgainBtn.addEventListener('click', () => {
+        socket.emit('play_again', { room: roomCode });
+    });
+
+    // --- 6. Socket Events (Game Flow) ---
+
+    // Room Update (Players joining/leaving)
+    socket.on('room_update', (data) => {
+        playerList.innerHTML = '';
+        data.players.forEach(p => {
+            const li = document.createElement('li');
+            li.className = 'player-item';
+            li.innerHTML = `
+                <span class="player-name">
+                    ${p.name} ${p.is_host ? '<span class="host-badge">(Host)</span>' : ''}
+                </span>
+                <span class="player-status">Ready</span>
+            `;
+            playerList.appendChild(li);
+        });
+    });
+
+    // Game Countdown
+    socket.on('game_starting', (data) => {
+        switchScreen(gameScreen);
+        countdownOverlay.classList.remove('hidden');
+        let count = 3;
+        countdownText.textContent = count;
+        
+        const interval = setInterval(() => {
+            count--;
+            if (count > 0) {
+                countdownText.textContent = count;
+            } else if (count === 0) {
+                countdownText.textContent = "GO!";
+            } else {
+                clearInterval(interval);
+                countdownOverlay.classList.add('hidden');
+            }
+        }, 1000);
+    });
+
+    // New Round Started
+    socket.on('round_started', (data) => {
+        currentSentence = data.sentence;
+        currentRoundEl.textContent = data.current_round;
+        totalRoundsEl.textContent = data.total_rounds;
+        roundTimeLimit = data.time_limit;
+        
+        // Reset typing area
+        gameInput.value = '';
+        gameInput.disabled = false;
+        gameInput.focus();
+        
+        accuracyDisplay.textContent = "100%";
+        wpmDisplay.textContent = "0 WPM";
+        
+        renderSentence(); // Draw initial text
+        gameStartTime = Date.now();
+    });
+
+    // Timer Update
+    socket.on('timer_update', (data) => {
+        timeRemainingEl.textContent = data.time_left;
+        const progressPercentage = (data.time_left / roundTimeLimit) * 100;
+        progressBar.style.width = `${progressPercentage}%`;
+        
+        if (data.time_left <= 5) {
+            progressBar.style.backgroundColor = 'var(--error)';
+        } else {
+            progressBar.style.backgroundColor = 'var(--primary)';
+        }
+    });
+
+    // Leaderboard Update
+    socket.on('leaderboard_update', (data) => {
+        updateLeaderboardUI(data.players, liveLeaderboard);
+    });
+
+    // Round Ended
+    socket.on('round_ended', () => {
+        gameInput.disabled = true;
+        showNotification("Round Over! Get ready...");
+    });
+
+    // Game Finished
+    socket.on('game_finished', (data) => {
+        switchScreen(resultsScreen);
+        
+        const sortedPlayers = data.players.sort((a, b) => b.score - a.score);
+        if (sortedPlayers.length > 0) {
+            winnerText.textContent = sortedPlayers[0].name;
+            winnerScore.textContent = `${sortedPlayers[0].score} Points`;
+        }
+        
+        updateLeaderboardUI(sortedPlayers, finalLeaderboard);
+    });
+
+    // Reset to Waiting Room (if host clicked Play Again)
+    socket.on('reset_room', () => {
+        switchScreen(waitingScreen);
+    });
+
+    // --- 7. Typing Engine & Stats Calculation ---
+    gameInput.addEventListener('input', () => {
+        const inputVal = gameInput.value;
+        renderSentence();
+        calculateAndEmitStats(inputVal);
+        
+        // Auto-complete if they type the whole thing correctly
+        if (inputVal === currentSentence) {
+            gameInput.disabled = true;
+            showNotification("Finished sentence!");
+        }
+    });
+
+    function renderSentence() {
+        const inputChars = gameInput.value.split('');
+        const targetChars = currentSentence.split('');
+        
+        targetTextContainer.innerHTML = '';
+        
+        targetChars.forEach((char, index) => {
+            const span = document.createElement('span');
+            span.textContent = char;
+            
+            if (inputChars[index] == null) {
+                // Not typed yet
+                span.className = 'char-untyped';
+            } else if (inputChars[index] === char) {
+                // Typed correctly
+                span.className = 'char-correct';
+            } else {
+                // Typed incorrectly
+                span.className = 'char-incorrect';
+            }
+            
+            targetTextContainer.appendChild(span);
+        });
+    }
+
+    function calculateAndEmitStats(inputVal) {
+        // Calculate Accuracy
+        let correctChars = 0;
+        for (let i = 0; i < inputVal.length; i++) {
+            if (inputVal[i] === currentSentence[i]) {
+                correctChars++;
+            }
+        }
+        const accuracy = inputVal.length === 0 ? 100 : Math.round((correctChars / inputVal.length) * 100);
+        
+        // Calculate WPM
+        const timeElapsedMinutes = (Date.now() - gameStartTime) / 60000;
+        // Standard WPM formula: (Characters / 5) / Time in minutes
+        const wpm = timeElapsedMinutes > 0 ? Math.round((inputVal.length / 5) / timeElapsedMinutes) : 0;
+        
+        // Update UI locally
+        accuracyDisplay.textContent = `${accuracy}%`;
+        wpmDisplay.textContent = `${wpm} WPM`;
+        
+        // Send to server
+        socket.emit('player_progress', {
+            room: roomCode,
+            wpm: wpm,
+            accuracy: accuracy,
+            chars_typed: inputVal.length,
+            is_complete: inputVal === currentSentence
+        });
+    }
+
+    function updateLeaderboardUI(players, container) {
+        container.innerHTML = '';
+        players.forEach((p, index) => {
+            const li = document.createElement('li');
+            li.className = 'leaderboard-item';
+            li.innerHTML = `
+                <div class="leader-info">
+                    <span class="leader-rank">${index + 1}</span>
+                    <span class="leader-name">${p.name}</span>
+                </div>
+                <div class="leader-stats">
+                    ${p.score !== undefined ? `<span class="score-badge">${p.score} pts</span>` : ''}
+                    <span class="wpm-badge">${p.wpm || 0} WPM</span>
+                </div>
+            `;
+            container.appendChild(li);
+        });
+    }
 });

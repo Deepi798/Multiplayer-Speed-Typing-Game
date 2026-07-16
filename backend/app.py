@@ -1,341 +1,246 @@
+"""
+TypeRush Arena - Backend Server
+File: app.py
+"""
+
 from flask import Flask, render_template, request
-from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_socketio import SocketIO, emit, join_room as socket_join_room, leave_room as socket_leave_room
 import random
-import time
-import uuid
+import os
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'typing-game-secret'
+app.config['SECRET_KEY'] = 'your-super-secret-key-change-in-production'
+
+# Enable CORS for Socket.IO to prevent connection issues on deployment platforms like Render
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Game state
+# In-memory storage for active rooms
+# Structure: { "ROOM_ID": { "players": {}, "state": "waiting", "settings": {} } }
 rooms = {}
-words = []
 
-# Load sentences by difficulty
-def load_sentences():
-    global words
-    sentences = {'easy': [], 'medium': [], 'hard': []}
-    
+# Fallback sentences in case sentences.txt is missing
+DEFAULT_SENTENCES = [
+    "The quick brown fox jumps over the lazy dog.",
+    "A journey of a thousand miles begins with a single step.",
+    "To be or not to be, that is the question.",
+    "All that glitters is not gold.",
+    "Technology is best when it brings people together."
+]
+
+def get_random_sentence():
     try:
-        with open('sentences.txt', 'r') as f:
-            current_difficulty = None
-            for line in f:
-                line = line.strip()
-                if line.startswith('# EASY'):
-                    current_difficulty = 'easy'
-                elif line.startswith('# MEDIUM'):
-                    current_difficulty = 'medium'
-                elif line.startswith('# HARD'):
-                    current_difficulty = 'hard'
-                elif line and not line.startswith('#') and current_difficulty:
-                    sentences[current_difficulty].append(line)
-        
-        # Combine all for backwards compatibility
-        words = sentences['easy'] + sentences['medium'] + sentences['hard']
-        return sentences
+        with open('sentences.txt', 'r', encoding='utf-8') as f:
+            lines = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+            if lines:
+                return random.choice(lines)
     except FileNotFoundError:
-        default = ['The cat sat on the mat.', 'I like to eat pizza.']
-        return {'easy': default, 'medium': default, 'hard': default}
+        pass
+    return random.choice(DEFAULT_SENTENCES)
 
-sentences_by_difficulty = load_sentences()
-load_sentences()
+# ==========================================
+# HTTP ROUTES
+# ==========================================
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/room/<room_id>')
-def room(room_id):
-    return render_template('game.html', room_id=room_id)
+@app.route('/game')
+def game():
+    return render_template('game.html')
 
-@socketio.on('create_room')
-def handle_create_room(data):
-    room_id = str(uuid.uuid4())[:8]
-    player_name = data.get('player_name', 'Player')
-    
-    rooms[room_id] = {
-        'host': None,
-        'players': {},
-        'game_started': False,
-        'current_round': 0,
-        'total_rounds': 15,  # Default 15 rounds, can be changed by host
-        'word_list': [],
-        'current_word': None,
-        'word_sent_time': None,
-        'round_submissions': {},
-        'round_duration': 30,
-        'round_timer_id': None
-    }
-    
-    emit('room_created', {'room_id': room_id, 'player_name': player_name})
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
 
-@socketio.on("join_room")
+def get_room_players_list(room_id):
+    if room_id not in rooms:
+        return []
+    players = []
+    for sid, data in rooms[room_id]['players'].items():
+        players.append({
+            'id': sid,
+            'name': data['name'],
+            'is_host': data['is_host'],
+            'score': data.get('score', 0),
+            'wpm': data.get('wpm', 0)
+        })
+    return players
+
+def calculate_points(wpm, accuracy):
+    # Simple scoring algorithm prioritizing speed, penalized heavily by bad accuracy
+    return int(wpm * (accuracy / 100.0) * 10)
+
+# ==========================================
+# SOCKET.IO EVENTS
+# ==========================================
+
+@socketio.on('join_room')
 def handle_join_room(data):
+    room = data.get('room')
+    name = data.get('name')
+    is_host_claim = data.get('is_host', False)
 
-    room_id = data.get("room_id")
-    player_name = data.get("player_name", "").strip()
-
-    print(f"JOIN REQUEST -> {room_id} | {player_name}")
-
-    if not room_id:
-        emit("error", {"message": "Invalid Room"})
+    if not room or not name:
+        emit('error', {'msg': 'Missing room code or name.'})
         return
 
-    if not player_name:
-        emit("error", {"message": "Please enter your name"})
+    # Initialize room if it doesn't exist
+    if room not in rooms:
+        rooms[room] = {
+            'players': {},
+            'state': 'waiting',
+            'host_sid': request.sid,
+            'settings': {'total_rounds': 5}
+        }
+    
+    # If the room is already playing, prevent joining
+    if rooms[room]['state'] != 'waiting':
+        emit('error', {'msg': 'Game already in progress.'})
         return
 
-    if room_id not in rooms:
-        emit("error", {"message": "Room not found"})
-        return
+    # Determine if this player is actually the host 
+    # (If they claim host and room has no players, or their sid matches host_sid)
+    is_actual_host = (len(rooms[room]['players']) == 0) or (rooms[room].get('host_sid') == request.sid)
+    
+    if is_actual_host:
+        rooms[room]['host_sid'] = request.sid
 
-    # Get room
-    room = rooms[room_id]
-
-    # Check if game already started
-    if room["game_started"]:
-        emit("error", {"message": "Game already started"})
-        return
-
-    # Join Socket.IO room
-    join_room(room_id)
-
-    player_id = request.sid
-
-    # Add player
-    room["players"][player_id] = {
-        "name": player_name,
-        "score": 0,
-        "sid": player_id
+    rooms[room]['players'][request.sid] = {
+        'name': name,
+        'is_host': is_actual_host,
+        'score': 0,
+        'wpm': 0,
+        'accuracy': 100,
+        'is_complete': False
     }
 
-    # First player becomes host
-    if room.get("host") is None:
-        room["host"] = player_id
-
-    # Tell player they joined
-    emit("joined_room", {
-        "room_id": room_id,
-        "player_name": player_name,
-        "host": room["host"] == player_id
-    })
-
-    # Update everyone in the room
-    socketio.emit(
-        "player_list",
-        {
-            "players": list(room["players"].values())
-        },
-        room=room_id
-    )
-
-    print(f"{player_name} joined successfully.")
-
-@socketio.on('start_game')
-def handle_start_game(data):
-    room_id = data['room_id']
-    total_rounds = data.get('total_rounds', 15)  # Default to 15 if not specified
+    socket_join_room(room)
     
-    if room_id not in rooms:
-        return
-    
-    room = rooms[room_id]
-    room['game_started'] = True
-    room['current_round'] = 0
-    room['total_rounds'] = total_rounds
-    
-    # Calculate rounds per difficulty based on total rounds
-    rounds_per_difficulty = total_rounds // 3
-    remaining_rounds = total_rounds % 3
-    
-    # Distribute rounds: easy, medium, hard (with any remainder going to hard)
-    easy_count = rounds_per_difficulty
-    medium_count = rounds_per_difficulty
-    hard_count = rounds_per_difficulty + remaining_rounds
-    
-    # Get sentences for each difficulty
-    easy_sentences = random.sample(sentences_by_difficulty['easy'], min(easy_count, len(sentences_by_difficulty['easy'])))
-    medium_sentences = random.sample(sentences_by_difficulty['medium'], min(medium_count, len(sentences_by_difficulty['medium'])))
-    hard_sentences = random.sample(sentences_by_difficulty['hard'], min(hard_count, len(sentences_by_difficulty['hard'])))
-    
-    # Combine in order: easy first, then medium, then hard
-    room['word_list'] = easy_sentences + medium_sentences + hard_sentences
-    
-    for player_id in room['players']:
-        room['players'][player_id]['score'] = 0
-    
-    emit('game_started', {'total_rounds': room['total_rounds']}, room=room_id)
-    socketio.sleep(2)
-    send_next_word(room_id)
-
-def send_next_word(room_id):
-    if room_id not in rooms:
-        return
-        
-    room = rooms[room_id]
-    room['current_round'] += 1
-    
-    if room['current_round'] > room['total_rounds']:
-        end_game(room_id)
-        return
-    
-    word = room['word_list'][room['current_round'] - 1]
-    room['current_word'] = word
-    room['word_sent_time'] = time.time()
-    room['round_submissions'] = {}
-    
-    # Create unique timer ID for this round
-    timer_id = f"{room_id}_{room['current_round']}"
-    room['round_timer_id'] = timer_id
-    
-    socketio.emit('new_word', {
-        'word': word,
-        'round': room['current_round'],
-        'total_rounds': room['total_rounds'],
-        'duration': room['round_duration']
-    }, room=room_id)
-    
-    # Auto-advance after round duration
-    socketio.start_background_task(auto_advance_round, room_id, room['round_duration'], timer_id)
-
-@socketio.on('submit_word')
-def handle_submit_word(data):
-    room_id = data['room_id']
-    typed_word = data['word']
-    player_id = request.sid
-    
-    if room_id not in rooms or player_id not in rooms[room_id]['players']:
-        return
-    
-    room = rooms[room_id]
-    
-    # Check if already submitted correctly
-    if player_id in room['round_submissions']:
-        return
-    
-    submission_time = time.time()
-    reaction_time = submission_time - room['word_sent_time']
-    correct = typed_word.lower().strip() == room['current_word'].lower().strip()
-    
-    points = 0
-    if correct:
-        # Points based on speed: 1000 base - 100 per second
-        points = max(100, int(1000 - (reaction_time * 100)))
-        room['players'][player_id]['score'] += points
-        
-        # Mark as submitted only if correct
-        room['round_submissions'][player_id] = {
-            'word': typed_word,
-            'correct': correct,
-            'time': reaction_time,
-            'points': points
-        }
-        
-        # Broadcast who submitted correctly
-        socketio.emit('player_submitted', {
-            'player_name': room['players'][player_id]['name'],
-            'correct': correct,
-            'points': points,
-            'time': round(reaction_time, 2)
-        }, room=room_id)
-        
-        # Update leaderboard
-        socketio.emit('player_list', {
-            'players': sorted(room['players'].values(), key=lambda x: x['score'], reverse=True)
-        }, room=room_id)
-        
-        # If all players submitted correctly, cancel timer and show countdown
-        if len(room['round_submissions']) == len(room['players']):
-            room['round_timer_id'] = None
-            socketio.emit('round_complete', {'word': room['current_word']}, room=room_id)
-            socketio.sleep(5)  # Wait 5 seconds to show results
-            send_next_word(room_id)
-    
-    # Send result to the player
-    emit('submission_result', {
-        'correct': correct,
-        'points': points,
-        'reaction_time': round(reaction_time, 2)
-    })
-
-def auto_advance_round(room_id, duration, timer_id):
-    """Auto-advance to next round after time expires"""
-    socketio.sleep(duration)
-    
-    if room_id not in rooms:
-        return
-    
-    room = rooms[room_id]
-    
-    # Check if this timer is still valid (not cancelled by all players submitting)
-    if room.get('round_timer_id') != timer_id:
-        return  # Timer was cancelled, don't advance
-    
-    # Show timeout message with the correct answer
-    socketio.emit('round_timeout', {
-        'word': room['current_word']
-    }, room=room_id)
-    
-    # Wait 5 seconds so players can see the answer
-    socketio.sleep(5)
-    
-    # Then advance to next round
-    send_next_word(room_id)
-
-def end_game(room_id):
-    room = rooms[room_id]
-    players = sorted(room['players'].values(), key=lambda x: x['score'], reverse=True)
-    
-    winner = players[0] if players else None
-    
-    socketio.emit('game_ended', {
-        'winner': winner,
-        'final_scores': players
-    }, room=room_id)
-    
-    room['game_started'] = False
+    # Broadcast updated player list to everyone in the room
+    emit('room_update', {'players': get_room_players_list(room)}, to=room)
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    player_id = request.sid
-    for room_id, room in rooms.items():
-        if player_id in room['players']:
-            del room['players'][player_id]
-            socketio.emit('player_list', {
-                'players': list(room['players'].values())
-            }, room=room_id)
+    for room_id, room_data in list(rooms.items()):
+        if request.sid in room_data['players']:
+            was_host = room_data['players'][request.sid]['is_host']
+            del room_data['players'][request.sid]
+            
+            # If room is empty, delete it entirely
+            if not room_data['players']:
+                del rooms[room_id]
+            else:
+                # If host left, assign a new host randomly
+                if was_host:
+                    new_host_sid = next(iter(room_data['players']))
+                    room_data['players'][new_host_sid]['is_host'] = True
+                    room_data['host_sid'] = new_host_sid
+                
+                # Notify remaining players
+                emit('room_update', {'players': get_room_players_list(room_id)}, to=room_id)
+            break
+
+@socketio.on('start_game')
+def handle_start_game(data):
+    room = data.get('room')
+    if room in rooms and request.sid == rooms[room].get('host_sid'):
+        rounds = int(data.get('rounds', 5))
+        rooms[room]['settings']['total_rounds'] = rounds
+        rooms[room]['state'] = 'playing'
+        
+        # Start the background game loop task for this room
+        socketio.start_background_task(game_loop, room)
+
+@socketio.on('player_progress')
+def handle_player_progress(data):
+    room = data.get('room')
+    if room in rooms and request.sid in rooms[room]['players']:
+        player = rooms[room]['players'][request.sid]
+        
+        player['wpm'] = data.get('wpm', 0)
+        player['accuracy'] = data.get('accuracy', 100)
+        
+        if data.get('is_complete') and not player['is_complete']:
+            player['is_complete'] = True
+            # Award points for this round
+            player['score'] += calculate_points(player['wpm'], player['accuracy'])
+
+        # Broadcast live leaderboard updates
+        emit('leaderboard_update', {'players': get_room_players_list(room)}, to=room)
+
+@socketio.on('play_again')
+def handle_play_again(data):
+    room = data.get('room')
+    if room in rooms and request.sid == rooms[room].get('host_sid'):
+        rooms[room]['state'] = 'waiting'
+        # Reset scores
+        for p_data in rooms[room]['players'].values():
+            p_data['score'] = 0
+            p_data['wpm'] = 0
+            p_data['is_complete'] = False
+            
+        emit('reset_room', {}, to=room)
+        emit('room_update', {'players': get_room_players_list(room)}, to=room)
+
+# ==========================================
+# GAME LOOP (Runs asynchronously)
+# ==========================================
+
+def game_loop(room):
+    # Notify clients to show 3-2-1 countdown
+    socketio.emit('game_starting', {}, to=room)
+    socketio.sleep(3.5) # Wait for UI countdown to finish
+    
+    total_rounds = rooms[room]['settings']['total_rounds']
+    
+    for current_round in range(1, total_rounds + 1):
+        # Stop loop if room was deleted or everyone left
+        if room not in rooms or not rooms[room]['players']:
+            break
+            
+        # Reset round status for all players
+        for p in rooms[room]['players'].values():
+            p['is_complete'] = False
+            p['wpm'] = 0
+            
+        sentence = get_random_sentence()
+        time_limit = min(60, max(15, len(sentence) // 2)) # Dynamic time based on length
+        
+        socketio.emit('round_started', {
+            'current_round': current_round,
+            'total_rounds': total_rounds,
+            'sentence': sentence,
+            'time_limit': time_limit
+        }, to=room)
+        
+        # Timer Loop
+        time_left = time_limit
+        while time_left > 0:
+            if room not in rooms or rooms[room]['state'] != 'playing':
+                return
+                
+            socketio.emit('timer_update', {'time_left': time_left}, to=room)
+            socketio.sleep(1)
+            time_left -= 1
+            
+            # Check if everyone finished early
+            all_finished = all(p.get('is_complete') for p in rooms[room]['players'].values())
+            if all_finished:
+                break
+                
+        # Round Over
+        socketio.emit('timer_update', {'time_left': 0}, to=room)
+        socketio.emit('round_ended', {}, to=room)
+        
+        # Wait 3 seconds before next round
+        socketio.sleep(3)
+        
+    # Game Finished
+    if room in rooms:
+        rooms[room]['state'] = 'finished'
+        socketio.emit('game_finished', {'players': get_room_players_list(room)}, to=room)
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
-
-@socketio.on('skip_round')
-def handle_skip_round(data):
-    room_id = data['room_id']
-    player_id = request.sid
-    
-    if room_id not in rooms or player_id not in rooms[room_id]['players']:
-        return
-    
-    room = rooms[room_id]
-    
-    # Mark player as skipped
-    if player_id not in room['round_submissions']:
-        room['round_submissions'][player_id] = {
-            'word': '',
-            'correct': False,
-            'time': 0,
-            'points': 0
-        }
-    
-    emit('submission_result', {
-        'correct': False,
-        'points': 0,
-        'reaction_time': 0
-    })
-    
-    # If all players submitted/skipped, move to next round
-    if len(room['round_submissions']) == len(room['players']):
-        room['round_timer_id'] = None
-        socketio.sleep(3)  # Show results for 3 seconds
-        send_next_word(room_id)
+    # Use eventlet or gevent in production. Standard run is fine for development.
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)

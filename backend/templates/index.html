@@ -3,42 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Speed Typing Challenge</title>
+    <title>TypeRush Arena | Multiplayer Typing Game</title>
+    
+    <!-- Professional Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Core Stylesheet -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <h1>Speed Typing Challenge</h1>
-        <p class="subtitle">Ready to test your lightning-fast fingers? Let's see how quick you can type!</p>
-        
-        <div class="menu-box">
-            <div class="input-group">
-                <input type="text" id="playerName" placeholder="What's your name, speed demon?" maxlength="20">
+    <div class="container fade-in">
+        <header class="header">
+            <h1 class="brand-title">TypeRush Arena</h1>
+            <h2 class="brand-subtitle">Multiplayer Speed Typing Competition</h2>
+            <p class="brand-tagline">Compete with friends in real time. Improve your speed, accuracy, and consistency.</p>
+        </header>
+
+        <main class="card glass-effect">
+            <!-- Global Notification Area -->
+            <div id="notificationArea" class="notification hidden"></div>
+
+            <div class="form-group">
+                <label for="playerName">Your Name</label>
+                <input type="text" id="playerName" placeholder="Enter your name" autocomplete="off" maxlength="15">
             </div>
-            
-            <button class="btn btn-primary" onclick="createRoom()">Start New Challenge</button>
-            
-            <div class="divider">OR JOIN THE FUN</div>
-            
-            <div class="input-group">
-                <input type="text" id="roomCode" placeholder="Got a room code? Drop it here!" maxlength="8">
+
+            <button id="createRoomBtn" class="btn btn-primary w-100">Create Room</button>
+
+            <div class="divider">
+                <span>OR</span>
             </div>
-            <button class="btn btn-secondary" onclick="joinRoom()">Join Challenge</button>
-        </div>
-        
-        <div id="message" class="message"></div>
-        
-        <div class="tips-section">
-            <h3>Pro Tips</h3>
-            <ul>
-                <li>Keep your fingers on the home row keys</li>
-                <li>Don't look at the keyboard - trust your muscle memory</li>
-                <li>Accuracy beats speed - fewer mistakes = higher scores!</li>
-            </ul>
-        </div>
+
+            <div class="form-group">
+                <label for="roomCode">Room Code</label>
+                <input type="text" id="roomCode" placeholder="Enter 6-character code" autocomplete="off" maxlength="6" class="uppercase-input">
+            </div>
+
+            <button id="joinRoomBtn" class="btn btn-secondary w-100">Join Room</button>
+        </main>
     </div>
 
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- Frontend Logic -->
     <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>

@@ -3,86 +3,150 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Typing Arena</title>
+    <title>TypeRush Arena | Live Game</title>
+    
+    <!-- Professional Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Core Stylesheet -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <div class="game-header">
-            <h1>Typing Arena</h1>
-            <div class="room-info">
-                <span>Room Code: <strong id="roomCode">{{ room_id }}</strong></span>
-                <button class="btn-copy" onclick="copyRoomLink()">Share Link</button>
-            </div>
-        </div>
+    
+    <!-- Connection Status & Live Notifications (Fixed at top) -->
+    <div id="statusBanner" class="status-banner">Connecting to server...</div>
+    <div id="notificationArea" class="notification hidden"></div>
 
-        <div id="waitingArea" class="waiting-area">
-            <h2>Getting Ready to Type!</h2>
-            <p class="waiting-subtitle">Gather your friends and prepare for the ultimate typing showdown!</p>
-            
-            <div class="input-group">
-                <input type="text" id="playerName" placeholder="Enter your awesome name here!" maxlength="20">
-                <button class="btn btn-primary" onclick="joinGame()">Join the Battle</button>
+    <div class="container fade-in">
+        
+        <!-- ==========================================
+             SCREEN 1: WAITING ROOM
+             ========================================== -->
+        <main id="waitingScreen" class="card glass-effect">
+            <header class="room-header text-center">
+                <h2 class="brand-subtitle">Waiting Room</h2>
+                <div class="room-code-display">
+                    Code: <span id="displayRoomCode" class="highlight-text">------</span>
+                </div>
+                <button id="copyInviteBtn" class="btn btn-outline btn-sm w-100 mt-2">
+                    Copy Invite Link
+                </button>
+            </header>
+
+            <div class="divider">
+                <span>Players</span>
             </div>
-            <div id="playersList" class="players-list"></div>
-            
-            <div class="game-settings">
-                <h3>Challenge Settings</h3>
-                <div class="setting-item">
-                    <label for="roundsSelect">How many rounds can you handle?</label>
-                    <select id="roundsSelect" class="rounds-select">
-                        <option value="5">5 Rounds - Quick Sprint</option>
-                        <option value="10">10 Rounds - Steady Pace</option>
-                        <option value="15" selected>15 Rounds - Marathon</option>
-                        <option value="20">20 Rounds - Ultimate Challenge</option>
+
+            <ul id="playerList" class="player-list">
+                <!-- Players injected here via JS -->
+                <li class="player-item loading-text">Waiting for players...</li>
+            </ul>
+
+            <!-- Host Only Controls -->
+            <div id="hostControls" class="host-controls hidden mt-4">
+                <div class="form-group">
+                    <label for="roundsSelect">Number of Rounds</label>
+                    <select id="roundsSelect" class="form-select">
+                        <option value="5">5 Rounds</option>
+                        <option value="10">10 Rounds</option>
+                        <option value="15">15 Rounds</option>
+                        <option value="20">20 Rounds</option>
                     </select>
                 </div>
+                <button id="startGameBtn" class="btn btn-primary w-100">Start Game</button>
             </div>
             
-            <button id="startBtn" class="btn btn-success" onclick="startGame()" style="display:none;">Let's Go!</button>
-        </div>
-
-        <div id="gameArea" class="game-area" style="display:none;">
-            <div class="scoreboard">
-                <h3>Champions Board</h3>
-                <div id="scores"></div>
+            <!-- Guest Only Message -->
+            <div id="guestMessage" class="guest-message text-center mt-4 hidden">
+                <p class="text-muted">Waiting for the host to start the game...</p>
             </div>
+        </main>
+
+        <!-- ==========================================
+             SCREEN 2: ACTIVE GAME
+             ========================================== -->
+        <main id="gameScreen" class="card glass-effect hidden">
             
-            <div class="game-content">
-                <div class="round-info">
-                    <span id="roundNumber">Round 1/15</span>
-                    <span id="timer" class="timer">30s</span>
-                </div>
+            <!-- Pre-game Countdown Overlay -->
+            <div id="countdownOverlay" class="countdown-overlay hidden">
+                <h1 id="countdownText" class="countdown-text">3</h1>
+            </div>
+
+            <div class="game-header">
+                <div class="round-badge">Round <span id="currentRound">1</span> / <span id="totalRounds">5</span></div>
+                <div class="timer-badge"><span id="timeRemaining">0</span> sec</div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="progress-container mt-2">
+                <div id="progressBar" class="progress-bar"></div>
+            </div>
+
+            <div class="typing-area mt-4">
+                <p class="instruction-text">Type the sentence below:</p>
                 
-                <div class="word-display">
-                    <div id="currentWord" class="current-word">Get ready to type like lightning!</div>
+                <!-- The target text where spans will be injected for coloring -->
+                <div id="targetText" class="target-text-box">
+                    Loading sentence...
                 </div>
-                
-                <div class="input-area">
-                    <input type="text" id="wordInput" placeholder="Type the sentence as fast as you can..." autocomplete="off" disabled>
-                    <button id="submitBtn" class="btn btn-submit" onclick="submitAnswer()" disabled>
-                        Submit Answer
-                    </button>
-                    <div id="feedback" class="feedback"></div>
-                    <div id="submissionFeed" class="submission-feed"></div>
+
+                <input type="text" id="gameInput" class="typing-input mt-3" autocomplete="off" spellcheck="false" placeholder="Start typing here..." disabled>
+            </div>
+
+            <div class="stats-grid mt-4">
+                <div class="stat-box">
+                    <span class="stat-label">Accuracy</span>
+                    <span id="accuracyDisplay" class="stat-value">100%</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Speed</span>
+                    <span id="wpmDisplay" class="stat-value">0 WPM</span>
                 </div>
             </div>
-        </div>
 
-        <div id="gameOver" class="game-over" style="display:none;">
-            <h2>Challenge Complete!</h2>
-            <div id="winnerAnnouncement"></div>
-            <div id="finalScores"></div>
-            <button class="btn btn-primary" onclick="location.href='/'">Back to Home</button>
-        </div>
+            <div class="divider mt-4">
+                <span>Live Leaderboard</span>
+            </div>
+
+            <ul id="liveLeaderboard" class="leaderboard-list">
+                <!-- Live leaderboard injected here -->
+            </ul>
+        </main>
+
+        <!-- ==========================================
+             SCREEN 3: GAME OVER
+             ========================================== -->
+        <main id="resultsScreen" class="card glass-effect hidden text-center">
+            <h2 class="brand-title">Game Finished!</h2>
+            
+            <div class="winner-announcement mt-3">
+                <p class="text-muted">Winner</p>
+                <h3 id="winnerText" class="winner-name">Player Name</h3>
+                <p id="winnerScore" class="winner-score">0 Points</p>
+            </div>
+
+            <div class="divider mt-4">
+                <span>Final Rankings</span>
+            </div>
+
+            <ul id="finalLeaderboard" class="leaderboard-list mt-3">
+                <!-- Final results injected here -->
+            </ul>
+
+            <div class="action-buttons mt-4">
+                <button id="playAgainBtn" class="btn btn-primary w-100 mb-2 hidden">Play Again (Host)</button>
+                <button id="returnHomeBtn" class="btn btn-secondary w-100">Return to Home</button>
+            </div>
+        </main>
+
     </div>
 
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-
-<script>
-    const ROOM_ID = "{{ room_id }}";
-</script>
-
-<script src="{{ url_for('static', filename='game.js') }}"></script>
+    <!-- Socket.IO library (Required for Multiplayer) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.1/socket.io.min.js"></script>
+    
+    <!-- Frontend Logic -->
+    <script src="{{ url_for('static', filename='game.js') }}"></script>
 </body>
 </html>
